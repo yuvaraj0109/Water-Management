@@ -1,59 +1,87 @@
 import pandas as pd
 import numpy as np
+from sklearn.ensemble import RandomForestRegressor
+from google.colab import files
+import io
 
-# 1. Read the file you already uploaded
-# (We try reading it as Excel first, if that fails, we read as CSV)
-filename = 'Untitled spreadsheet.xlsx' 
+# ==========================================
+# PART 1: TRAIN THE AI MODEL
+# ==========================================
+print("🚀 STEP 1: Training the AI Model...")
 
-print(f"Reading {filename}...")
+# Generate dummy training data
+dates = pd.date_range(start="2024-01-01", end="2024-12-31")
+train_df = pd.DataFrame({'Date': dates})
+train_df['Month'] = train_df['Date'].dt.month
+train_df['Day_Of_Week'] = train_df['Date'].dt.dayofweek
+train_df['Temperature_C'] = 25 + 10 * np.sin((train_df['Month'] / 12) * 3.14) + np.random.normal(0, 2, len(train_df))
+train_df['Occupancy_Pct'] = np.where(train_df['Day_Of_Week'] >= 5, 30, 95) 
+train_df['Water_Demand_Liters'] = (5000 + (train_df['Temperature_C'] * 100) + (train_df['Occupancy_Pct'] * 50))
+
+features = ['Temperature_C', 'Occupancy_Pct', 'Day_Of_Week', 'Month']
+model = RandomForestRegressor(n_estimators=100, random_state=42)
+model.fit(train_df[features], train_df['Water_Demand_Liters'])
+print("✅ AI Model Trained!")
+
+# ==========================================
+# PART 2: UPLOAD YOUR FILE
+# ==========================================
+print("\n📂 STEP 2: Please Upload your Excel/CSV file now...")
+print("(Click the 'Choose Files' button below)")
+
+uploaded = files.upload()
+
+# Get the filename of whatever you just uploaded
+filename = next(iter(uploaded))
+print(f"   Reading {filename}...")
+
+# Read the file (Handle Excel or CSV automatically)
 try:
-    input_data = pd.read_excel(filename)
-except:
-    # If the user uploaded a CSV but named it .xlsx by mistake
-    input_data = pd.read_csv(filename)
+    if filename.endswith('.csv'):
+        input_data = pd.read_csv(io.BytesIO(uploaded[filename]))
+    else:
+        input_data = pd.read_excel(io.BytesIO(uploaded[filename]))
+except Exception as e:
+    print(f"❌ Error reading file: {e}")
 
-print("Columns in your file:", input_data.columns.tolist())
+# ==========================================
+# PART 3: FIX COLUMNS & PREDICT
+# ==========================================
+print("\n🔧 STEP 3: Processing Data...")
 
-# 2. FIX THE MISSING COLUMNS AUTOMATICALLY
-print("Fixing missing columns for the AI...")
+# Fix Date
+if 'Date' in input_data.columns:
+    input_data['Date'] = pd.to_datetime(input_data['Date'])
+    input_data['Month'] = input_data['Date'].dt.month
+    input_data['Day_Of_Week'] = input_data['Date'].dt.dayofweek
 
-# Fix 1: Ensure Date is recognized as a date
-input_data['Date'] = pd.to_datetime(input_data['Date'])
-
-# Fix 2: Create 'Month' and 'Day_Of_Week' from the Date
-input_data['Month'] = input_data['Date'].dt.month
-input_data['Day_Of_Week'] = input_data['Date'].dt.dayofweek
-
-# Fix 3: Rename 'Occupancy_Percent' to 'Occupancy_Pct' if needed
+# Fix Occupancy Name
 if 'Occupancy_Percent' in input_data.columns:
     input_data.rename(columns={'Occupancy_Percent': 'Occupancy_Pct'}, inplace=True)
 
-# Fix 4: Create a dummy 'Temperature_C' column since your file doesn't have it
-# (We simulate it: Hotter in months 4, 5, 6)
-input_data['Temperature_C'] = 25 + (10 * np.sin((input_data['Month'] / 12) * 3.14))
-
-# 3. RUN THE PREDICTION
-print("Running AI Prediction...")
-
-# Select the columns the model needs
-features = ['Temperature_C', 'Occupancy_Pct', 'Day_Of_Week', 'Month']
-X_new = input_data[features]
+# Generate Temperature if missing
+if 'Temperature_C' not in input_data.columns:
+    print("   -> Simulating missing Temperature data...")
+    input_data['Temperature_C'] = 25 + (10 * np.sin((input_data['Month'] / 12) * 3.14))
 
 # Predict
+print("🔮 STEP 4: Running Predictions...")
+X_new = input_data[features]
 input_data['AI_Predicted_Demand'] = model.predict(X_new)
 
-# 4. ADD RECOMMENDATIONS
-input_data['Pump_Suggestion'] = input_data['AI_Predicted_Demand'].apply(
-    lambda x: "⚠️ High Demand: Run Aux Pump" if x > 12000 else "✅ Normal: Single Pump"
+# Add Recommendation
+input_data['Pump_Action'] = input_data['AI_Predicted_Demand'].apply(
+    lambda x: "⚠️ HIGH DEMAND (Run Aux Pump)" if x > 12000 else "✅ NORMAL (Single Pump)"
 )
 
-# 5. SAVE AND DOWNLOAD
-output_file = 'AI_Water_Results.xlsx'
-input_data.to_excel(output_file, index=False)
+# ==========================================
+# PART 4: DOWNLOAD RESULTS
+# ==========================================
+output_filename = 'Final_AI_Water_Schedule.xlsx'
+input_data.to_excel(output_filename, index=False)
 
-print("-" * 30)
-print(f"✅ SUCCESS! Results saved to {output_file}")
-print("-" * 30)
+print("\n" + "="*40)
+print(f"🎉 SUCCESS! Downloading {output_filename}...")
+print("="*40)
 
-from google.colab import files
-files.download(output_file)
+files.download(output_filename)
